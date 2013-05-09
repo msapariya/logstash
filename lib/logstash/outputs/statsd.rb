@@ -54,6 +54,9 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
 
   # The sample rate for the metric
   config :sample_rate, :validate => :number, :default => 1
+  
+  # Drop non-existing-metric in current event?
+  config :dropnem, :validate => :boolean, :default => false
 
   # The final metric sent to statsd will look like the following (assuming defaults)
   # logstash.sender.file_name
@@ -65,6 +68,29 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
   def register
     require "statsd"
     @client = Statsd.new(@host, @port)
+    @dropmetric = []
+    if @dropnem == true
+      @increment.each do |metric|
+        if metric =~ /%{[^}]*}/
+          @dropmetric << metric
+        end
+      end
+      @decrement.each do |metric|
+        if metric =~ /%{[^}]*}/
+          @dropmetric << metric
+        end
+      end
+      @timing.each do |metric, val|
+        if metric =~ /%{[^}]*}/
+          @dropmetric << metric
+        end
+      end
+      @count.each do |metric, val|
+        if metric =~ /%{[^}]*}/
+          @dropmetric << metric
+        end
+      end
+    end
   end # def register
 
   public
@@ -77,16 +103,20 @@ class LogStash::Outputs::Statsd < LogStash::Outputs::Base
     logger.debug("Munged sender: #{sender}")
     logger.debug("Event: #{event}")
     @increment.each do |metric|
+      next if @dropmetric.include?(event.sprintf(metric))
       @client.increment(build_stat(event.sprintf(metric), sender), @sample_rate)
     end
     @decrement.each do |metric|
+      next if @dropmetric.include?(metric)
       @client.decrement(build_stat(event.sprintf(metric), sender), @sample_rate)
     end
     @count.each do |metric, val|
+      next if @dropmetric.include?(metric)
       @client.count(build_stat(event.sprintf(metric), sender),
                     event.sprintf(val).to_f, @sample_rate)
     end
     @timing.each do |metric, val|
+      next if @dropmetric.include?(metric)
       @client.timing(build_stat(event.sprintf(metric), sender),
                      event.sprintf(val).to_f, @sample_rate)
     end
